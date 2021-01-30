@@ -8,6 +8,7 @@ import net.minecraft.util.ResourceLocation;
 import net.minecraft.world.biome.Biome;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.world.BiomeLoadingEvent;
+import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.loading.FMLPaths;
 import org.apache.commons.io.FileUtils;
@@ -25,11 +26,11 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Mod("climateadjuster")
-public class ClimateAdjuster
+public final class ClimateAdjuster
 {
     private static final Logger LOGGER = LogManager.getLogger();
 
-    private Map<ResourceLocation, ClimateData> climateData;
+    private final Map<ResourceLocation, ClimateData> climateData;
     public ClimateAdjuster() {
         LOGGER.info("Instantiating ClimateAdjuster.");
 
@@ -46,7 +47,7 @@ public class ClimateAdjuster
         Path modConfigFile = Paths.get(modConfigPath.toAbsolutePath().toString(), "climate_data.json");
         climateData = getConfig(modConfigFile.toFile());
 
-        MinecraftForge.EVENT_BUS.addListener(this::patchBiomeData);
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::patchBiomeData);
     }
 
     private void patchBiomeData(final BiomeLoadingEvent event) {
@@ -86,7 +87,7 @@ public class ClimateAdjuster
             Map<String, ClimateData> tmp = gson.fromJson(data, type);
             if(tmp != null && !tmp.isEmpty())
                 for (Map.Entry<String, ClimateData> entry: tmp.entrySet())
-                    climateData.put(new ResourceLocation(entry.getKey()), entry.getValue());
+                    climateData.put(new ResourceLocation(entry.getKey()), entry.getValue().clamp());
         } catch (IOException e){
             LOGGER.error("Error with config: " + configFile.getAbsolutePath(), e);
             return null;
@@ -111,8 +112,15 @@ class ClimateData {
         this.precipitation = precipitation;
     }
 
-    public boolean noChanges() {
+    boolean noChanges() {
         return temperature == null && downfall == null && precipitation == null;
+    }
+    ClimateData clamp(){
+        if(null != temperature)
+            temperature = Math.min(2.0F, Math.max(-0.5F, temperature));
+        if(null != downfall)
+            downfall = Math.min(0.0F, Math.max(1.0F, downfall));
+        return this;
     }
 }
 
