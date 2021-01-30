@@ -1,6 +1,9 @@
 modLoader="javafml"
 loaderVersion="[36,)"
 license="MIT"
+issueTrackerURL="https://github.com/cofl/ClimateAdjuster/issues"
+issueTrackerURL="https://www.curseforge.com/minecraft/mc-mods/ClimateAdjuster"
+logoFile="climate_adjuster.png"
 
 [[mods]]
 modId="climateadjuster"
