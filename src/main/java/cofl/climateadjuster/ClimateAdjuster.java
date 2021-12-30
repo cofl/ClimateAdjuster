@@ -4,8 +4,8 @@ import com.google.common.collect.Maps;
 import com.google.gson.*;
 import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
-import net.minecraft.util.ResourceLocation;
-import net.minecraft.world.biome.Biome;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.world.BiomeLoadingEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
@@ -20,22 +20,22 @@ import java.io.IOException;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 
-@Mod("climateadjuster")
+@Mod(ClimateAdjuster.CLIMATEADJUSTER)
 public final class ClimateAdjuster
 {
     private static final Logger LOGGER = LogManager.getLogger();
+    static final String CLIMATEADJUSTER = "climateadjuster";
 
     private final Map<ResourceLocation, ClimateData> climateData;
     public ClimateAdjuster() {
         LOGGER.info("Instantiating ClimateAdjuster.");
 
-        Path configPath = FMLPaths.CONFIGDIR.get();
-        Path modConfigPath = Paths.get(configPath.toAbsolutePath().toString(), "climateadjuster");
+        var configPath = FMLPaths.CONFIGDIR.get();
+        var modConfigPath = Paths.get(configPath.toAbsolutePath().toString(), CLIMATEADJUSTER);
         if(!Files.exists(modConfigPath)) {
             try {
                 Files.createDirectory(modConfigPath);
@@ -44,30 +44,24 @@ public final class ClimateAdjuster
             }
         }
 
-        Path modConfigFile = Paths.get(modConfigPath.toAbsolutePath().toString(), "climate_data.json");
+        var modConfigFile = Paths.get(modConfigPath.toAbsolutePath().toString(), "climate_data.json");
         climateData = getConfig(modConfigFile.toFile());
 
         MinecraftForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::patchBiomeData);
     }
 
     private void patchBiomeData(final BiomeLoadingEvent event) {
-        ResourceLocation biomeName = event.getName();
+        var biomeName = event.getName();
         if(climateData.containsKey(biomeName)){
-            ClimateData data = climateData.get(biomeName);
-            if(data.noChanges()){
+            var data = climateData.get(biomeName);
+            if(data.hasChanges())
+                LOGGER.info("Patching climate data for " + biomeName);
+            else {
                 LOGGER.info("Skipped empty climate data for " + biomeName);
                 return;
-            } else {
-                LOGGER.info("Patching climate data for " + biomeName);
             }
 
-            Biome.Climate currentClimate = event.getClimate();
-            Biome.Climate newClimate = new Biome.Climate(
-                    null == data.precipitation ? currentClimate.precipitation : data.precipitation,
-                    null == data.temperature ? currentClimate.temperature : data.temperature,
-                    currentClimate.temperatureModifier,
-                    null == data.downfall ? currentClimate.downfall : data.downfall);
-            event.setClimate(newClimate);
+            event.setClimate(data.toClimate(event.getClimate()));
         } else {
             LOGGER.debug("No ClimateAdjuster configuration for biome " + biomeName);
         }
@@ -75,18 +69,19 @@ public final class ClimateAdjuster
 
     private Map<ResourceLocation, ClimateData> getConfig(File configFile){
         Map<ResourceLocation, ClimateData> climateData = Maps.newHashMap();
-        Gson gson = new GsonBuilder()
-                .registerTypeAdapter(Biome.RainType.class, new RainTypeAdapter())
+        var gson = new GsonBuilder()
+                .registerTypeAdapter(Biome.Precipitation.class, new RainTypeAdapter())
+                .registerTypeAdapter(Biome.TemperatureModifier.class, new TemperatureModifierAdapter())
                 .setPrettyPrinting()
                 .create();
         try {
             if(!configFile.exists())
                 FileUtils.write(configFile, gson.toJson(new HashMap<String, ClimateData>()), StandardCharsets.UTF_8);
-            String data = FileUtils.readFileToString(configFile, StandardCharsets.UTF_8);
-            Type type = new TypeToken<Map<String,ClimateData>>(){}.getType();
-            Map<String, ClimateData> tmp = gson.fromJson(data, type);
-            if(tmp != null && !tmp.isEmpty())
-                for (Map.Entry<String, ClimateData> entry: tmp.entrySet())
+            var data = FileUtils.readFileToString(configFile, StandardCharsets.UTF_8);
+            var type = new TypeToken<Map<String,ClimateData>>(){}.getType();
+            Map<String, ClimateData> map = gson.fromJson(data, type);
+            if(null != map && !map.isEmpty())
+                for (var entry: map.entrySet())
                     climateData.put(new ResourceLocation(entry.getKey()), entry.getValue().clamp());
         } catch (IOException e){
             LOGGER.error("Error with config: " + configFile.getAbsolutePath(), e);
@@ -96,24 +91,28 @@ public final class ClimateAdjuster
     }
 }
 
-class ClimateData {
+final class ClimateData {
     @SerializedName("temperature")
     public Float temperature;
 
     @SerializedName("downfall")
     public Float downfall;
 
-    @SerializedName("precipitation")
-    public Biome.RainType precipitation;
+    @SerializedName("temperatureModifier")
+    public Biome.TemperatureModifier temperatureModifier;
 
-    public ClimateData(Biome.RainType precipitation, Float temperature, Float downfall) {
-        this.temperature = temperature;
-        this.downfall = downfall;
+    @SerializedName("precipitation")
+    public Biome.Precipitation precipitation;
+
+    public ClimateData(Biome.Precipitation precipitation, Float temperature, Biome.TemperatureModifier temperatureModifier, Float downfall) {
         this.precipitation = precipitation;
+        this.temperature = temperature;
+        this.temperatureModifier = temperatureModifier;
+        this.downfall = downfall;
     }
 
-    boolean noChanges() {
-        return temperature == null && downfall == null && precipitation == null;
+    boolean hasChanges(){
+        return null != temperature || null != downfall || null != precipitation;
     }
     ClimateData clamp(){
         if(null != temperature)
@@ -122,14 +121,32 @@ class ClimateData {
             downfall = Math.min(0.0F, Math.max(1.0F, downfall));
         return this;
     }
+    Biome.ClimateSettings toClimate(Biome.ClimateSettings defaultClimate) {
+        return new Biome.ClimateSettings(
+                null == precipitation ? defaultClimate.precipitation : precipitation,
+                null == temperature ? defaultClimate.temperature : temperature,
+                null == temperatureModifier ? defaultClimate.temperatureModifier : temperatureModifier,
+                null == downfall ? defaultClimate.downfall : downfall
+        );
+    }
 }
 
-class RainTypeAdapter implements JsonSerializer<Biome.RainType>, JsonDeserializer<Biome.RainType> {
-    public Biome.RainType deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) throws JsonParseException {
-        return Biome.RainType.getRainType(json.getAsJsonPrimitive().getAsString());
+final class RainTypeAdapter implements JsonSerializer<Biome.Precipitation>, JsonDeserializer<Biome.Precipitation> {
+    public Biome.Precipitation deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) throws JsonParseException {
+        return Biome.Precipitation.byName(json.getAsString());
     }
 
-    public JsonElement serialize(Biome.RainType src, Type typeOfSrc, JsonSerializationContext context) {
+    public JsonElement serialize(Biome.Precipitation src, Type typeOfSrc, JsonSerializationContext context) {
+        return new JsonPrimitive(src.getName());
+    }
+}
+
+final class TemperatureModifierAdapter implements JsonSerializer<Biome.TemperatureModifier>, JsonDeserializer<Biome.TemperatureModifier> {
+    public Biome.TemperatureModifier deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) throws JsonParseException {
+        return Biome.TemperatureModifier.byName(json.getAsString());
+    }
+
+    public JsonElement serialize(Biome.TemperatureModifier src, Type typeOfSrc, JsonSerializationContext context) {
         return new JsonPrimitive(src.getName());
     }
 }
