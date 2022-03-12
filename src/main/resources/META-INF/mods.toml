@@ -1,5 +1,5 @@
 modLoader="javafml"
-loaderVersion="[39,)"
+loaderVersion="[40,)"
 license="MIT"
 issueTrackerURL="https://github.com/cofl/ClimateAdjuster/issues"
 displayURL="https://www.curseforge.com/minecraft/mc-mods/ClimateAdjuster"
@@ -31,12 +31,12 @@ If using Serene Seasons, prefer the "rain" precipitation type.
 [[dependencies.climateadjuster]] #optional
     modId="forge"
     mandatory=true
-    versionRange="[39,)"
+    versionRange="[40,)"
     ordering="NONE"
     side="BOTH"
 [[dependencies.climateadjuster]]
     modId="minecraft"
     mandatory=true
-    versionRange="[1.18.1,1.19)"
+    versionRange="[1.18.2,1.19)"
     ordering="NONE"
     side="BOTH"
